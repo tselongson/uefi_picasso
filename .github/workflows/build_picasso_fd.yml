@@ -26,7 +26,15 @@ jobs:
         with:
           repository: UniXNU/UniXNU
           path: UniXNU
-          submodules: recursive
+
+      - name: Init UniXNU submodules except the dead ArmCpu pin
+        run: |
+          cd UniXNU
+          # UniXNU/ArmCpu was force-pushed on 2026-10-31; every UniXNU commit
+          # pins 2e11cda..., which no longer resolves.  The UEFI firmware build
+          # does not read that kernel driver, so skip it and init the rest.
+          git config submodule.drivers/ArmCpu.update none
+          git submodule update --init --recursive
 
       - name: Checkout UniXNU-picasso device repo
         uses: actions/checkout@v4
