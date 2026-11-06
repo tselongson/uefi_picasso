@@ -6,7 +6,7 @@
 #include <Library/IoLib.h>
 #include <Library/PlatformSecLib.h>
 #include <Library/MemoryMapHelperLib.h>
-//#include <Library/ArmSmmuDetachLib.h>
+#include <Library/ArmSmmuDetachLib.h>
 
 #include "PlatformRegisters.h"
 
@@ -32,9 +32,14 @@ PlatformInitialize ()
   // Disable WatchDog Timer
   DisableWatchDogTimer ();
 
-  // Set MDP SIDs
-  //CONST UINT16 MdpStreams[] = { 0x800, 0x801 };
-
-  // Detach IOMMU Domains
-  //ArmSmmuDetach (MdpStreams, ARRAY_SIZE (MdpStreams));
+  // The wlan copy engines have no stream-match entry: the device tree
+  // attaches the wlan node to the apps SMMU with SID 0xc0 (mask 1) and the
+  // network stack probes SID 0x20, but XBL leaves both unmatched and the
+  // kernel cannot add an entry (this SMMU's registers are policy-locked
+  // once the OS runs - only the console's 0x800000e0 store is accepted).
+  // With sCR0.USFCFG set, the first CE DMA faults the whole machine.
+  // Attach both streams to the console's bypass context bank (61) now,
+  // while the registers are still writable from here.
+  ArmSmmuAddBypassStream (0x20, 0, 61);
+  ArmSmmuAddBypassStream (0xc0, 1, 61);
 }

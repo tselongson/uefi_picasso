@@ -234,3 +234,67 @@ ArmSmmuDetach (
   // Detach IOMMU Domains
   ArmSmmuDetachAll (SkipStreams, SkipStreamCount);
 }
+
+VOID
+ArmSmmuAddBypassStream (
+  IN UINT32 StreamId,
+  IN UINT32 Mask,
+  IN UINT32 ContextBankIndex)
+{
+  EFI_STATUS                   Status;
+  EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
+
+  // Locate "SMMU" Memory Region
+  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  // Clear SMMU Device Variable
+  ZeroMem ((VOID *)&SmmuDevice, sizeof (SmmuDevice));
+
+  // Set SMMU Base Address
+  SmmuDevice.BaseAddress = SmmuRegion.Address;
+
+  // Get GR0_ID1
+  UINT32 Id1 = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_ID1);
+
+  // Set Remaining SMMU Data
+  SmmuDevice.PageShift       = (Id1 & ARM_SMMU_ID1_PAGESIZE) ? 16 : 12;
+  SmmuDevice.NumPage         = 1 << ((READ_FIELD (ARM_SMMU_ID1_NUMPAGENDXB, Id1)) + 1);
+  SmmuDevice.NumContextBanks = Id1 & ARM_SMMU_ID1_NUMCB_MASK;
+
+  // Get the Number of SMRGs
+  UINT32 Id0    = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_ID0);
+  UINT32 NumSmrg = (Id0 >> 0) & 0xFF;
+
+  // If the stream is already matched, leave it alone
+  for (UINT32 i = 0; i < NumSmrg; i++) {
+    UINT32 Smr = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_SMR (i));
+
+    if ((Smr & SMR_VALID) && ((Smr & SMR_ID_MASK) == (StreamId & ~(Mask & SMR_ID_MASK)))) {
+      return;
+    }
+  }
+
+  // Find a free SMR slot and route it through the Context Bank first, the
+  // order the console path uses (an S2CR store with the pair is known to
+  // stick, an SMR-first store may not).
+  for (UINT32 i = 0; i < NumSmrg; i++) {
+    UINT32 Smr = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_SMR (i));
+
+    if (Smr & SMR_VALID) {
+      continue;
+    }
+
+    ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_S2CR (i), ContextBankIndex & S2CR_CBNDX_MASK);
+    ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_SMR (i),
+      SMR_VALID
+      | ((StreamId & SMR_ID_MASK) << SMR_ID_SHIFT)
+      | ((Mask & SMR_ID_MASK) << SMR_MASK_SHIFT));
+
+    // Invalidate TLB
+    ArmInvalidateTlb ();
+    return;
+  }
+}
