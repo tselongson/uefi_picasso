@@ -264,9 +264,17 @@ ArmSmmuAddBypassStream (
   SmmuDevice.NumPage         = 1 << ((READ_FIELD (ARM_SMMU_ID1_NUMPAGENDXB, Id1)) + 1);
   SmmuDevice.NumContextBanks = Id1 & ARM_SMMU_ID1_NUMCB_MASK;
 
-  // Get the Number of SMRGs
-  UINT32 Id0    = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_ID0);
-  UINT32 NumSmrg = (Id0 >> 0) & 0xFF;
+  // Get the Number of SMRGs.  SMMUv2 keeps the stream-match group count
+  // in IDR2[25:16] (NUMS2CR, the SMR count equals the S2CR count) - the
+  // IDR0 low byte read here before is a feature bitmap, which on picasso
+  // made this scan stop before the first free slot and silently bind
+  // nothing.
+  UINT32 Id2    = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_ID2);
+  UINT32 NumSmrg = READ_FIELD (ARM_SMMU_ID2_NUMS2CR, Id2);
+
+  if ((NumSmrg == 0) || (NumSmrg > 128)) {
+    NumSmrg = 128;
+  }
 
   // If the stream is already matched, leave it alone
   for (UINT32 i = 0; i < NumSmrg; i++) {
@@ -297,4 +305,32 @@ ArmSmmuAddBypassStream (
     ArmInvalidateTlb ();
     return;
   }
+}
+
+VOID
+ArmSmmuAllowUnmatchedStreams (VOID)
+{
+  EFI_STATUS                   Status;
+  EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
+
+  // Locate "SMMU" Memory Region
+  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  // Clear SMMU Device Variable
+  ZeroMem ((VOID *)&SmmuDevice, sizeof (SmmuDevice));
+
+  // Set SMMU Base Address
+  SmmuDevice.BaseAddress = SmmuRegion.Address;
+
+  // sCR0.USFCFG set means a stream without a stream-match entry faults.
+  // The wlan masters on picasso carry stream 0x20 mask 1 per the device
+  // tree, but any master whose stream this firmware did not anticipate
+  // would fault its first DMA and wedge the interconnect, so let
+  // unmatched streams pass through untranslated instead.
+  UINT32 Scr0 = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_sCR0);
+
+  ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_sCR0, Scr0 & ~ARM_SMMU_sCR0_USFCFG);
 }

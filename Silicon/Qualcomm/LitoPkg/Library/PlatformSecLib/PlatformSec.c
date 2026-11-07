@@ -40,6 +40,12 @@ PlatformInitialize ()
   // With sCR0.USFCFG set, the first CE DMA faults the whole machine.
   // Attach both streams to the console's bypass context bank (61) now,
   // while the registers are still writable from here.
-  ArmSmmuAddBypassStream (0x20, 0, 61);
+  // The device tree gives the icnss node iommus = <&apps_smmu 0x20 0x01>:
+  // two masters (0x20 and 0x21).  Mask 0 here covered only 0x20 and the
+  // copy engines still faulted their first DMA, so match the tree's mask.
+  ArmSmmuAddBypassStream (0x20, 1, 61);
   ArmSmmuAddBypassStream (0xc0, 1, 61);
+  // Safety net for any master this firmware did not anticipate: unmatched
+  // streams pass through untranslated instead of faulting.
+  ArmSmmuAllowUnmatchedStreams ();
 }

@@ -23,12 +23,16 @@
 //
 #define ARM_SMMU_GR0_ID0 0x20
 #define ARM_SMMU_GR0_ID1 0x24
+#define ARM_SMMU_GR0_ID2 0x28
+#define ARM_SMMU_GR0_sCR0 0x000
 
 //
 // Page Selector Constants
 //
 #define ARM_SMMU_CB(s, n)        ((s)->NumPage + (n))
 #define ARM_SMMU_ID1_NUMPAGENDXB  GEN_MSK (30, 28)
+#define ARM_SMMU_ID2_NUMS2CR      GEN_MSK (25, 16)
+#define ARM_SMMU_sCR0_USFCFG      (1U << 10)
 #define ARM_SMMU_GR0              0
 #define ARM_SMMU_GR1              1
 
