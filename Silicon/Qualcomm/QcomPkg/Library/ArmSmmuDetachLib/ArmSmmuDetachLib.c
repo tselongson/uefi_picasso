@@ -21,6 +21,28 @@
 //
 STATIC ARM_SMMU_V2_DEVICE SmmuDevice;
 
+//
+// The apps SMMU base from the device tree.  SEC's memory map on picasso has
+// no node called "SMMU", so LocateMemoryRegionByName() fails there and every
+// write in this library has been returning early: three FD builds tried to
+// pre-bind the wlan streams and the stream-match table never changed.
+//
+STATIC
+EFI_STATUS
+ArmSmmuResolveBase (
+  OUT EFI_MEMORY_REGION_DESCRIPTOR *Region)
+{
+  if (!EFI_ERROR (LocateMemoryRegionByName ("SMMU", Region))) {
+    return EFI_SUCCESS;
+  }
+
+  ZeroMem ((VOID *)Region, sizeof (*Region));
+  Region->Address = 0x15000000;
+  Region->Length  = 0x200000;
+  return EFI_SUCCESS;
+}
+
+
 VOID
 ArmSmmuDisableContextBank (IN UINT32 ContextBankIndex)
 {
@@ -212,7 +234,7 @@ ArmSmmuDetach (
   EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
 
   // Locate "SMMU" Memory Region
-  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  Status = ArmSmmuResolveBase (&SmmuRegion);
   if (EFI_ERROR (Status)) {
     return;
   }
@@ -245,7 +267,7 @@ ArmSmmuAddBypassStream (
   EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
 
   // Locate "SMMU" Memory Region
-  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  Status = ArmSmmuResolveBase (&SmmuRegion);
   if (EFI_ERROR (Status)) {
     return;
   }
@@ -328,7 +350,7 @@ ArmSmmuAllowUnmatchedStreams (VOID)
   EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
 
   // Locate "SMMU" Memory Region
-  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  Status = ArmSmmuResolveBase (&SmmuRegion);
   if (EFI_ERROR (Status)) {
     return;
   }
@@ -373,7 +395,7 @@ ArmSmmuBindStreamAtSlot (
   EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
   UINT32                       Want;
 
-  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  Status = ArmSmmuResolveBase (&SmmuRegion);
   if (EFI_ERROR (Status)) {
     return;
   }
@@ -412,7 +434,7 @@ ArmSmmuForceBypassBank (
   UINT32                       Id1;
   UINT32                       Sctlr;
 
-  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  Status = ArmSmmuResolveBase (&SmmuRegion);
   if (EFI_ERROR (Status)) {
     return;
   }

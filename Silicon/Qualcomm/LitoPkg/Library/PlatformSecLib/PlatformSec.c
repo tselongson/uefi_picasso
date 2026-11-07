@@ -54,6 +54,12 @@ PlatformInitialize ()
   ArmSmmuBindStreamAtSlot (13, 0xc0, 1, 61);
   ArmSmmuBindStreamAtSlot (14, 0xc2, 1, 61);
 
+  // Probe: stream 0x7a5 is used by nothing on this board.  If this entry is
+  // in the table when XNU dumps it, SEC's SMMU writes land; if it is not,
+  // nothing this library wrote ever reached the hardware and the wlan
+  // streams have to be matched some other way.
+  ArmSmmuBindStreamAtSlot (15, 0x7a5, 0, 61);
+
   // A matched stream routed to a bank whose SCTLR.M is still set would walk
   // page tables nobody wrote, so make bank 61 a plain bypass bank first.
   ArmSmmuForceBypassBank (61);
