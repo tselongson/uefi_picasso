@@ -32,13 +32,20 @@ EFI_STATUS
 ArmSmmuResolveBase (
   OUT EFI_MEMORY_REGION_DESCRIPTOR *Region)
 {
-  if (!EFI_ERROR (LocateMemoryRegionByName ("SMMU", Region))) {
-    return EFI_SUCCESS;
-  }
+  EFI_MEMORY_REGION_DESCRIPTOR Found;
 
+  // The device tree puts apps_smmu at 0x15000000 (iommu@15000000, 1 MiB) and
+  // XNU reads IDR0 = 0x4c017e51 there, so that address is authoritative.  The
+  // memory map lookup is only a cross-check: if it disagrees, trust the tree.
   ZeroMem ((VOID *)Region, sizeof (*Region));
   Region->Address = 0x15000000;
   Region->Length  = 0x200000;
+
+  if (!EFI_ERROR (LocateMemoryRegionByName ("SMMU", &Found)) &&
+      Found.Address != 0 && Found.Address < 0x100000000ULL) {
+    Region->Address = 0x15000000;
+  }
+
   return EFI_SUCCESS;
 }
 
