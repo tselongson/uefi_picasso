@@ -60,10 +60,10 @@ PlatformInitialize ()
   // streams have to be matched some other way.
   ArmSmmuBindStreamAtSlot (15, 0x7a5, 0, 61);
 
-  // A matched stream routed to a bank whose SCTLR.M is still set would walk
-  // page tables nobody wrote, so make bank 61 a plain bypass bank first.
-  ArmSmmuForceBypassBank (61);
-
+  // Do NOT force a bank to bypass: XBL's SMR->bank assignment changes from
+  // boot to boot (USB was on 60 in one boot and 61 in the next), so clearing
+  // SCTLR.M on a fixed bank number can break an unrelated master - build 447
+  // lost the USB console that way.
   // Safety net for any master this firmware did not anticipate: unmatched
   // streams pass through untranslated instead of faulting.
   ArmSmmuAllowUnmatchedStreams ();
