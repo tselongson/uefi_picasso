@@ -287,22 +287,36 @@ ArmSmmuAddBypassStream (
 
   // Find a free SMR slot and route it through the Context Bank first, the
   // order the console path uses (an S2CR store with the pair is known to
-  // stick, an SMR-first store may not).
+  // stick, an SMR-first store may not).  The first stream-match store after
+  // power-on is dropped on this silicon (build 444: the 0x20 entry vanished
+  // while the later 0xc0 entry stuck, same function, same phase), so write
+  // the pair until the read back matches.
   for (UINT32 i = 0; i < NumSmrg; i++) {
     UINT32 Smr = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_SMR (i));
+    UINT32 Want;
 
     if (Smr & SMR_VALID) {
       continue;
     }
 
-    ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_S2CR (i), ContextBankIndex & S2CR_CBNDX_MASK);
-    ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_SMR (i),
-      SMR_VALID
+    Want = SMR_VALID
       | ((StreamId & SMR_ID_MASK) << SMR_ID_SHIFT)
-      | ((Mask & SMR_ID_MASK) << SMR_MASK_SHIFT));
+      | ((Mask & SMR_ID_MASK) << SMR_MASK_SHIFT);
 
-    // Invalidate TLB
-    ArmInvalidateTlb ();
+    for (UINT32 attempt = 0; attempt < 8; attempt++) {
+      ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_S2CR (i), ContextBankIndex & S2CR_CBNDX_MASK);
+      ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_SMR (i), Want);
+
+      // Invalidate TLB
+      ArmInvalidateTlb ();
+
+      if (ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_SMR (i)) == Want) {
+        return;
+      }
+
+      // Store lost before the SMMU clock settled - let it settle and retry.
+      MicroSecondDelay (100);
+    }
     return;
   }
 }
@@ -329,8 +343,21 @@ ArmSmmuAllowUnmatchedStreams (VOID)
   // The wlan masters on picasso carry stream 0x20 mask 1 per the device
   // tree, but any master whose stream this firmware did not anticipate
   // would fault its first DMA and wedge the interconnect, so let
-  // unmatched streams pass through untranslated instead.
-  UINT32 Scr0 = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_sCR0);
+  // unmatched streams pass through untranslated instead.  Global registers
+  // may refuse stores, so verify and retry.
+  for (UINT32 attempt = 0; attempt < 8; attempt++) {
+    UINT32 Scr0 = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_sCR0);
 
-  ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_sCR0, Scr0 & ~ARM_SMMU_sCR0_USFCFG);
+    if ((Scr0 & ARM_SMMU_sCR0_USFCFG) == 0) {
+      return;
+    }
+
+    ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_sCR0, Scr0 & ~ARM_SMMU_sCR0_USFCFG);
+
+    if ((ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_sCR0) & ARM_SMMU_sCR0_USFCFG) == 0) {
+      return;
+    }
+
+    MicroSecondDelay (100);
+  }
 }

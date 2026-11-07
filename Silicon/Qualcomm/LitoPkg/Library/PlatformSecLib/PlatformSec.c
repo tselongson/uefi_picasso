@@ -44,6 +44,11 @@ PlatformInitialize ()
   // two masters (0x20 and 0x21).  Mask 0 here covered only 0x20 and the
   // copy engines still faulted their first DMA, so match the tree's mask.
   ArmSmmuAddBypassStream (0x20, 1, 61);
+  // The first stream-match store after power-on is dropped on this SMMU
+  // (build 444: the 0x20 entry vanished while the later 0xc0 entry stuck,
+  // same function, same phase).  The bind now verifies and retries, and
+  // this second call runs it again in case the first one gave up.
+  ArmSmmuAddBypassStream (0x20, 1, 61);
   ArmSmmuAddBypassStream (0xc0, 1, 61);
   // Safety net for any master this firmware did not anticipate: unmatched
   // streams pass through untranslated instead of faulting.
