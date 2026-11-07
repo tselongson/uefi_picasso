@@ -361,3 +361,84 @@ ArmSmmuAllowUnmatchedStreams (VOID)
     MicroSecondDelay (100);
   }
 }
+
+VOID
+ArmSmmuBindStreamAtSlot (
+  IN UINT32 Slot,
+  IN UINT32 StreamId,
+  IN UINT32 Mask,
+  IN UINT32 ContextBankIndex)
+{
+  EFI_STATUS                   Status;
+  EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
+  UINT32                       Want;
+
+  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  ZeroMem ((VOID *)&SmmuDevice, sizeof (SmmuDevice));
+  SmmuDevice.BaseAddress = SmmuRegion.Address;
+
+  // An explicit slot costs nothing and removes the scan from the equation:
+  // when a store is dropped and the next call scans again it lands in the
+  // same slot and overwrites the entry written a moment earlier (build 444:
+  // the 0x20 entry was missing while 0xc0 sat in the slot 0x20 had taken).
+  Want = SMR_VALID
+    | ((StreamId & SMR_ID_MASK) << SMR_ID_SHIFT)
+    | ((Mask & SMR_ID_MASK) << SMR_MASK_SHIFT);
+
+  for (UINT32 attempt = 0; attempt < 16; attempt++) {
+    ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_S2CR (Slot),
+      ContextBankIndex & S2CR_CBNDX_MASK);
+    ArmSmmuGr0Write (&SmmuDevice, ARM_SMMU_GR0_SMR (Slot), Want);
+    ArmInvalidateTlb ();
+
+    if (ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_SMR (Slot)) == Want) {
+      return;
+    }
+
+    MicroSecondDelay (200);
+  }
+}
+
+VOID
+ArmSmmuForceBypassBank (
+  IN UINT32 Bank)
+{
+  EFI_STATUS                   Status;
+  EFI_MEMORY_REGION_DESCRIPTOR SmmuRegion;
+  UINT32                       Id1;
+  UINT32                       Sctlr;
+
+  Status = LocateMemoryRegionByName ("SMMU", &SmmuRegion);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  ZeroMem ((VOID *)&SmmuDevice, sizeof (SmmuDevice));
+  SmmuDevice.BaseAddress = SmmuRegion.Address;
+
+  Id1 = ArmSmmuGr0Read (&SmmuDevice, ARM_SMMU_GR0_ID1);
+  SmmuDevice.PageShift       = (Id1 & ARM_SMMU_ID1_PAGESIZE) ? 16 : 12;
+  SmmuDevice.NumPage         = 1 << ((READ_FIELD (ARM_SMMU_ID1_NUMPAGENDXB, Id1)) + 1);
+  SmmuDevice.NumContextBanks = Id1 & ARM_SMMU_ID1_NUMCB_MASK;
+
+  if (Bank >= SmmuDevice.NumContextBanks) {
+    return;
+  }
+
+  // If the bank the wlan streams are routed to still has translation on, a
+  // stream that matches it would walk page tables nobody wrote and fault
+  // anyway.  Clearing SCTLR.M makes it a bypass bank, the state the USB
+  // driver runs its own bank in (sctlr=014c2114, M=0).
+  // CB_SCTLR is 0x0 in the bank's page, bit 0 is M.  Spelled as literals
+  // because SmmuV2.h (the header this file sees) does not define them.
+  Sctlr = ArmSmmuCbRead (&SmmuDevice, Bank, 0x0);
+
+  if (Sctlr & 0x1u) {
+    ArmSmmuCbWrite (&SmmuDevice, Bank, 0x0, Sctlr & ~0x1u);
+    ArmInvalidateTlb ();
+  }
+}

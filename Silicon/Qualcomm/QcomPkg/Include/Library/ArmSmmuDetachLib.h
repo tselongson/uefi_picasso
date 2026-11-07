@@ -32,6 +32,11 @@ ArmSmmuAddBypassStream (
   IN UINT32 ContextBankIndex
   );
 
+VOID
+ArmSmmuForceBypassBank (
+  IN UINT32 Bank
+  );
+
 /**
   Clears sCR0.USFCFG so streams without a stream-match entry pass through
   untranslated instead of faulting.  Call once from SEC after the explicit
@@ -39,5 +44,13 @@ ArmSmmuAddBypassStream (
 **/
 VOID
 ArmSmmuAllowUnmatchedStreams (VOID);
+
+VOID
+ArmSmmuBindStreamAtSlot (
+  IN UINT32 Slot,
+  IN UINT32 StreamId,
+  IN UINT32 Mask,
+  IN UINT32 ContextBankIndex
+  );
 
 #endif /* _ARM_SMMU_DETACH_LIB_H_ */
